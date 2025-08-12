@@ -1,5 +1,4 @@
 import pdf from 'pdf-parse';
-import fetch from 'node-fetch';
 
 // A chave da API DEVE ser definida como uma variável de ambiente no Vercel.
 // Isso impede que a chave seja exposta publicamente no código do frontend,
@@ -78,6 +77,7 @@ export default async function handler(req, res) {
     };
     
     // Chamada à API da Gemini usando a chave de ambiente segura.
+    // A função 'fetch' é nativa no ambiente do Vercel (Node.js 18+).
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
 
     const response = await fetch(apiUrl, {
