@@ -23,6 +23,7 @@ export default async function handler(req, res) {
     const pdfBuffer = Buffer.from(pdfData, 'base64');
     
     // Processa o PDF para extrair o texto usando pdf-parse.
+    // Esta é a parte que foi alterada para usar uma biblioteca de backend mais robusta.
     const data = await pdf(pdfBuffer);
     const fullText = data.text;
 
@@ -102,6 +103,8 @@ export default async function handler(req, res) {
     return res.status(200).json(dataWithItemCount);
   } catch (error) {
     console.error('Erro na função serverless:', error);
+    // Retorna uma resposta JSON consistente, mesmo em caso de erro,
+    // para que o frontend não falhe ao tentar fazer o parse.
     return res.status(500).json({ error: error.message });
   }
 }
