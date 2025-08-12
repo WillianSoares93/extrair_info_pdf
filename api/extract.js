@@ -1,10 +1,13 @@
-import { getDocument } from 'pdfjs-dist';
+import pdf from 'pdf-parse';
+import fetch from 'node-fetch';
 
-// A chave da API deve ser definida como uma variável de ambiente no Vercel.
-// Isso garante que a chave não seja exposta no código do cliente.
+// A chave da API DEVE ser definida como uma variável de ambiente no Vercel.
+// Isso impede que a chave seja exposta publicamente no código do frontend,
+// garantindo a segurança da sua conta.
 const API_KEY = process.env.GEMINI_API_KEY; 
 
 export default async function handler(req, res) {
+  // Apenas aceita requisições POST para processamento de arquivos.
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Método não permitido.' });
   }
@@ -16,17 +19,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Nenhum dado de PDF foi fornecido.' });
     }
 
-    // Convertendo o base64 de volta para um ArrayBuffer para o pdf.js
+    // Convertendo o base64 de volta para um Buffer para o pdf-parse.
     const pdfBuffer = Buffer.from(pdfData, 'base64');
-    const pdfDoc = await getDocument({ data: pdfBuffer }).promise;
+    
+    // Processa o PDF para extrair o texto usando pdf-parse.
+    const data = await pdf(pdfBuffer);
+    const fullText = data.text;
 
-    let fullText = '';
-    for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page = await pdfDoc.getPage(i);
-      const textContent = await page.getTextContent();
-      fullText += textContent.items.map(item => item.str).join(' ') + '\n\n';
-    }
-
+    // Monta o prompt para a IA da Gemini com o texto extraído e as instruções adicionais.
     const prompt = `
       Extraia os dados de produtos do texto abaixo e formate-os em uma planilha com as seguintes colunas:
       - Produto: O código do produto.
@@ -76,7 +76,7 @@ export default async function handler(req, res) {
       }
     };
     
-    // Chamada à API da Gemini usando a chave de ambiente
+    // Chamada à API da Gemini usando a chave de ambiente segura.
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
 
     const response = await fetch(apiUrl, {
@@ -93,7 +93,7 @@ export default async function handler(req, res) {
     const jsonString = result.candidates[0].content.parts[0].text;
     const parsedData = JSON.parse(jsonString);
 
-    // Adiciona a contagem de linhas no servidor, em vez do cliente
+    // Adiciona a contagem de linhas no servidor, em vez do cliente.
     const dataWithItemCount = parsedData.map((row, index) => ({
       item: (index + 1).toString(),
       ...row

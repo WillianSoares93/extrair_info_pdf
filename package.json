@@ -1,5 +1,10 @@
 {
+  "name": "extrator-pdf-vercel",
+  "version": "1.0.0",
   "dependencies": {
-    "pdfjs-dist": "^5.4.54"
+    "pdfjs-dist": "^3.4.120"
+  },
+  "scripts": {
+    "start": "vercel dev"
   }
 }

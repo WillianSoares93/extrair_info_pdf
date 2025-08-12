@@ -91,8 +91,8 @@
         <!-- Log de processamento -->
         <div id="processing-log" class="hidden mt-8">
             <h3 class="text-lg font-bold text-gray-800 mb-2">Logs de Processamento</h3>
-            <div class="bg-gray-100 text-gray-700 p-4 rounded-lg overflow-y-auto max-h-60" style="white-space: pre-wrap;">
-                <p id="log-content" class="text-sm"></p>
+            <div id="log-content" class="bg-gray-100 text-gray-700 p-4 rounded-lg overflow-y-auto max-h-60" style="white-space: pre-wrap;">
+                <p class="text-sm"></p>
             </div>
         </div>
 
@@ -233,23 +233,83 @@
                     timer = null;
                 }
             };
-            
-            const renderTable = (tableData) => {
-                tableBody.innerHTML = '';
-                tableData.forEach(row => {
-                    const tr = document.createElement('tr');
-                    tr.classList.add('hover:bg-gray-50', 'transition-colors', 'duration-150');
-                    tr.innerHTML = `
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${row.item}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${row.produto}</td>
-                        <td class="px-6 py-4 text-sm text-gray-500">${row.descricao}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${row.um}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${row.quantidade}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${row.precoVenda}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${row.total}</td>
-                    `;
-                    tableBody.appendChild(tr);
-                });
+
+            const processFile = async () => {
+                loading = true;
+                error = null;
+                data = null;
+                finalTime = null;
+                logContent.textContent = '';
+                statusMessageElem.textContent = 'Iniciando o processo...';
+                startTimer();
+                updateUI();
+
+                try {
+                    const apiStartTime = Date.now();
+                    const reader = new FileReader();
+                    
+                    reader.onload = async (e) => {
+                        try {
+                            const pdfData = btoa(String.fromCharCode(...new Uint8Array(e.target.result)));
+                            logContent.textContent += `Lendo o arquivo PDF e enviando para o servidor...\n`;
+
+                            // Chamada para a função Serverless do Vercel
+                            const response = await fetch('/api/extract', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    pdfData: pdfData,
+                                    additionalPrompt: additionalPrompt.value
+                                })
+                            });
+
+                            if (!response.ok) {
+                                const errorData = await response.json();
+                                throw new Error(errorData.error || `Erro na requisição: ${response.status}`);
+                            }
+
+                            const result = await response.json();
+
+                            if (result && result.length > 0) {
+                                data = result;
+                                statusMessageElem.textContent = 'Dados extraídos com sucesso!';
+                                logContent.textContent += `Resposta do servidor recebida. Tabela gerada.\n`;
+                            } else {
+                                error = 'Não foi possível extrair os dados. O formato do PDF pode não ser suportado.';
+                                statusMessageElem.textContent = 'Erro na extração.';
+                                logContent.textContent += `Erro: Resposta do servidor vazia ou inválida.\n`;
+                            }
+                        } catch (e) {
+                            error = `Erro ao processar o arquivo: ${e.message}`;
+                            statusMessageElem.textContent = 'Erro na extração.';
+                            logContent.textContent += `Erro: ${e.message}\n`;
+                        } finally {
+                            loading = false;
+                            stopTimer();
+                            finalTime = ((Date.now() - apiStartTime) / 1000).toFixed(2);
+                            additionalPrompt.value = '';
+                            updateUI();
+                        }
+                    };
+                    
+                    reader.onerror = (e) => {
+                        loading = false;
+                        error = `Erro ao ler o arquivo: ${e.message}`;
+                        statusMessageElem.textContent = 'Erro na leitura.';
+                        stopTimer();
+                        updateUI();
+                    };
+
+                    reader.readAsArrayBuffer(file);
+                } catch (e) {
+                    loading = false;
+                    error = `Erro inesperado: ${e.message}`;
+                    statusMessageElem.textContent = 'Erro inesperado.';
+                    stopTimer();
+                    updateUI();
+                }
             };
 
             // Event listeners
@@ -298,172 +358,7 @@
                 }
             });
 
-            extractButton.addEventListener('click', async () => {
-                if (!file) return;
-
-                loading = true;
-                error = null;
-                data = null;
-                finalTime = null;
-                logContent.textContent = '';
-                statusMessageElem.textContent = 'Iniciando o processo...';
-                startTimer();
-                updateUI();
-                
-                try {
-                    const apiStartTime = Date.now();
-                    const reader = new FileReader();
-                    reader.readAsArrayBuffer(file);
-                    
-                    reader.onload = async (e) => {
-                        try {
-                            logContent.textContent += `Lendo o arquivo PDF para extração de texto...\n`;
-                            const pdfData = new Uint8Array(e.target.result);
-                            const pdfDoc = await pdfjsLib.getDocument({ data: pdfData }).promise;
-                            let fullText = '';
-                            logContent.textContent += `Iniciando a leitura de ${pdfDoc.numPages} páginas...\n`;
-                            
-                            for (let i = 1; i <= pdfDoc.numPages; i++) {
-                                const page = await pdfDoc.getPage(i);
-                                const textContent = await page.getTextContent();
-                                const pageText = textContent.items.map(item => item.str).join(' ');
-                                fullText += pageText + '\n\n';
-                                logContent.textContent += `Lendo página ${i}... concluído. ${pageText.substring(0, 50)}...\n`;
-                            }
-                            
-                            logContent.textContent += `Leitura de todas as páginas completa. Preparando para enviar para a IA...\n`;
-
-                            const prompt = `
-                              Extraia os dados de produtos do texto abaixo e formate-os em uma planilha com as seguintes colunas:
-                              - Produto: O código do produto.
-                              - Descricao: A descrição completa do produto.
-                              - UM: A unidade de medida.
-                              - Quantidade: A quantidade.
-                              - Preco Venda: O preço de venda.
-                              - Total: O preço total.
-                              ${additionalPrompt.value ? `Instruções adicionais do usuário: ${additionalPrompt.value}` : ''}
-
-                              TEXTO DO PDF:
-                              "${fullText}"
-                              
-                              A resposta deve ser um array de objetos JSON, onde cada objeto representa uma linha da tabela, seguindo a estrutura:
-                              {
-                                "produto": "string",
-                                "descricao": "string",
-                                "um": "string",
-                                "quantidade": "string",
-                                "precoVenda": "string",
-                                "total": "string"
-                              }
-                            `;
-                            
-                            const payload = {
-                                contents: [{
-                                    role: "user",
-                                    parts: [
-                                        { text: prompt }
-                                    ]
-                                }],
-                                generationConfig: {
-                                    responseMimeType: "application/json",
-                                    responseSchema: {
-                                        type: "ARRAY",
-                                        items: {
-                                            type: "OBJECT",
-                                            properties: {
-                                                "produto": { "type": "STRING" },
-                                                "descricao": { "type": "STRING" },
-                                                "um": { "type": "STRING" },
-                                                "quantidade": { "type": "STRING" },
-                                                "precoVenda": { "type": "STRING" },
-                                                "total": { "type": "STRING" }
-                                            },
-                                            "propertyOrdering": ["produto", "descricao", "um", "quantidade", "precoVenda", "total"]
-                                        }
-                                    }
-                                }
-                            };
-                            
-                            const apiKey = 'AIzaSyBbPzUra1nd1HR7cF-ZTGidu-DtVqKD2Nk';
-                            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-                            
-                            // Retries loop with exponential backoff
-                            let response;
-                            let apiError = null;
-                            for (let i = 0; i < 5; i++) {
-                                logContent.textContent += `\nEnviando dados para a IA... (Tentativa ${i + 1}/5)\n`;
-                                try {
-                                    response = await fetch(apiUrl, {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify(payload)
-                                    });
-                                    if (response.ok) {
-                                        apiError = null;
-                                        break; // Exit loop on success
-                                    }
-                                    apiError = `Erro na API: ${await response.text()}`;
-                                } catch (e) {
-                                    apiError = `Erro de rede: ${e.message}`;
-                                }
-                                await new Promise(res => setTimeout(res, 1000 * (i + 1))); // Exponential backoff
-                            }
-
-                            if (apiError) {
-                                throw new Error(apiError);
-                            }
-                            
-                            statusMessageElem.textContent = 'Processando dados...';
-                            logContent.textContent += `Resposta da IA recebida. Processando...\n`;
-                            const result = await response.json();
-                            
-                            if (result.candidates && result.candidates.length > 0 &&
-                                result.candidates[0].content && result.candidates[0].content.parts &&
-                                result.candidates[0].content.parts.length > 0) {
-                                const jsonString = result.candidates[0].content.parts[0].text;
-                                const parsedData = JSON.parse(jsonString);
-                                
-                                const dataWithItemCount = parsedData.map((row, index) => ({
-                                    item: (index + 1).toString(),
-                                    ...row
-                                }));
-                                
-                                data = dataWithItemCount;
-                                statusMessageElem.textContent = 'Dados extraídos com sucesso!';
-                                logContent.textContent += `Tabela gerada com sucesso.\n`;
-                            } else {
-                                error = 'Não foi possível extrair os dados. O formato do PDF pode não ser suportado.';
-                                statusMessageElem.textContent = 'Erro na extração.';
-                                logContent.textContent += `Erro: Resposta da IA vazia ou inválida.\n`;
-                            }
-                        } catch (e) {
-                            error = `Erro ao processar o arquivo: ${e.message}`;
-                            statusMessageElem.textContent = 'Erro na extração.';
-                            logContent.textContent += `Erro: ${e.message}\n`;
-                        } finally {
-                            loading = false;
-                            stopTimer();
-                            finalTime = ((Date.now() - apiStartTime) / 1000).toFixed(2);
-                            additionalPrompt.value = ''; // Limpa o campo de instruções
-                            updateUI();
-                        }
-                    };
-                    
-                    reader.onerror = (e) => {
-                        loading = false;
-                        error = `Erro ao ler o arquivo: ${e.message}`;
-                        statusMessageElem.textContent = 'Erro na leitura.';
-                        stopTimer();
-                        updateUI();
-                    };
-                } catch (e) {
-                    loading = false;
-                    error = `Erro inesperado: ${e.message}`;
-                    statusMessageElem.textContent = 'Erro inesperado.';
-                    stopTimer();
-                    updateUI();
-                }
-            });
+            extractButton.addEventListener('click', processFile);
 
             downloadButton.addEventListener('click', () => {
                 if (!data || data.length === 0) return;
