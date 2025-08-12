@@ -22,7 +22,6 @@ export default async function handler(req, res) {
     const pdfBuffer = Buffer.from(pdfData, 'base64');
     
     // Processa o PDF para extrair o texto usando pdf-parse.
-    // Esta é a parte que foi alterada para usar uma biblioteca de backend mais robusta.
     const data = await pdf(pdfBuffer);
     const fullText = data.text;
 
@@ -77,7 +76,6 @@ export default async function handler(req, res) {
     };
     
     // Chamada à API da Gemini usando a chave de ambiente segura.
-    // A função 'fetch' é nativa no ambiente do Vercel (Node.js 18+).
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${API_KEY}`;
 
     const response = await fetch(apiUrl, {
